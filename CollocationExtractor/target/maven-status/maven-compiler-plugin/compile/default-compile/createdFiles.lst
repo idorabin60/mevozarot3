@@ -1,0 +1,17 @@
+collocation/mapreduce/CollocationResult.class
+collocation/mapreduce/Step2GroupingComparator.class
+collocation/mapreduce/Step4Reducer.class
+collocation/mapreduce/Step4Mapper.class
+collocation/mapreduce/Step2Mapper.class
+collocation/mapreduce/KeyStep2.class
+collocation/mapreduce/Step2Partitioner.class
+collocation/mapreduce/Step2Reducer.class
+collocation/mapreduce/LLR.class
+collocation/mapreduce/Step3MapperUnigram.class
+collocation/input/StopWords.class
+collocation/mapreduce/Step3Reducer.class
+collocation/mapreduce/Step1Combiner.class
+collocation/Main.class
+collocation/mapreduce/Step1Reducer.class
+collocation/mapreduce/Step3MapperJoin.class
+collocation/mapreduce/Step1Mapper.class

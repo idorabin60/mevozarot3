@@ -1,0 +1,17 @@
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step2Reducer.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step2Mapper.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step4Mapper.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step3MapperJoin.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step3Reducer.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step4Reducer.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/input/StopWords.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step1Combiner.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step2Partitioner.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step1Mapper.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/Main.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step2GroupingComparator.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/KeyStep2.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step1Reducer.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/CollocationResult.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/LLR.java
+/Users/idorabin/mevozarot-2/CollocationExtractor/src/main/java/collocation/mapreduce/Step3MapperUnigram.java
