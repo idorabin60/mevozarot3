@@ -84,7 +84,6 @@ public class Main extends org.apache.hadoop.conf.Configured implements Tool {
         if (!job1.waitForCompletion(true)) {
             return 1;
         }
-
         // Read N from file (Persisted Counters)
         readDecadeCounts(conf, new Path(step1Output), fs);
 
