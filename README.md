@@ -1,128 +1,117 @@
-# Collocation Extraction on AWS EMR
+# Project Architecture: Collocation Extraction
 
-## Personal Information
-*   **Name**: ido rabin
-*   **ID**: 211698816
+This document outlines the architecture of the Collocation Extraction project, which utilizes a 4-step Hadoop MapReduce pipeline to identify significant bigram collocations from the Google N-grams dataset using Log Likelihood Ratio (LLR).
 
-## Project Description
-This project implements a Collocation Extractor using Hadoop MapReduce on Amazon EMR. It calculates the Log Likelihood Ratio (LLR) for bigrams in the Google N-grams dataset to identify potential collocations.
+## High-Level Data Flow
 
-## How to Run
+```mermaid
+graph TD
+    %% Global Inputs
+    Input1["Google 1-grams (Input)<br/>(Decade, w1, Count)"]
+    Input2["Google 2-grams (Input)<br/>(Decade, w1, w2, Count)"]
+    StopWords["Stop Words File (S3/HDFS)"]
 
-### Prerequisites
-*   Java 8
-*   Maven 3.6+
-*   Hadoop 3.3.4 (or compatible)
+    %% Step 1
+    subgraph Step1["Step 1: Aggregation & Filtering"]
+        direction TB
+        S1Map["Step1Mapper<br/>(Filter StopWords)"]
+        S1Red["Step1Reducer<br/>(Sum Counts)"]
+        S1Out["Step 1 Output<br/>(Decade, w1, w2, Count)<br/>(Decade, w1, Count)"]
+        S1Counters["Step 1 Counters<br/>(Decade, N, TotalCount)"]
+    end
 
-### Compilation
-Build the project using Maven to create the executable JAR:
-```bash
-mvn package
+    %% Step 2
+    subgraph Step2["Step 2: Join C(w1)"]
+        direction TB
+        S2Map["Step2Mapper<br/>(Prepare Key w1)"]
+        S2Red["Step2Reducer<br/>(Join Bigram with C(w1))"]
+        S2Out["Step 2 Output<br/>(Decade, w1, w2, C(w1), C(w1,w2))"]
+    end
+
+    %% Step 3
+    subgraph Step3["Step 3: Join C(w2) & Calculate LLR"]
+        direction TB
+        S3Map1["Step3MapperUnigram"]
+        S3Map2["Step3MapperJoin"]
+        S3Red["Step3Reducer<br/>(Calc LLR)"]
+        S3Out["Step 3 Output<br/>(Decade, LLR, w1 w2)"]
+    end
+
+    %% Step 4
+    subgraph Step4["Step 4: Sorting"]
+        direction TB
+        S4Map["Step4Mapper<br/>(Map LLR to Key)"]
+        S4Red["Step4Reducer<br/>(Top 100 per Decade)"]
+        FinalOut["Final Output<br/>(Decade, w1 w2, LLR)"]
+    end
+
+    %% Connections
+    Input1 --> S1Map
+    Input2 --> S1Map
+    StopWords -.->|"Distributed Cache"| S1Map
+    
+    S1Map --> S1Red
+    S1Red --> S1Out
+    S1Red --> S1Counters
+    
+    S1Out --> S2Map
+    S2Map --> S2Red
+    S2Red --> S2Out
+
+    S1Counters -.->|"Configuration (N)"| S3Red
+    
+    S1Out --> S3Map1
+    S2Out --> S3Map2
+    S3Map1 --> S3Red
+    S3Map2 --> S3Red
+    S3Red --> S3Out
+
+    S3Out --> S4Map
+    S4Map --> S4Red
+    S4Red --> FinalOut
 ```
-This will produce `target/CollocationExtractor-1.0-SNAPSHOT.jar`.
 
-### Execution
-Run the JAR on a Hadoop cluster (e.g., EMR) or locally (standalone mode) with the following arguments:
+## Detailed Component Logic
 
-```bash
-hadoop jar target/CollocationExtractor-1.0-SNAPSHOT.jar \
-  <1-gram_input_path> \
-  <2-gram_input_path> \
-  <output_path> \
-  <stopwords_file_path>
-```
+### Step 1: Aggregation & Filtering
+*   **Purpose**: Clean raw data and count occurrences.
+*   **Mapper (`Step1Mapper`)**:
+    *   Reads 1-grams and 2-grams.
+    *   Loads **Stop Words** from Distributed Cache.
+    *   Filters out entries containing stop words.
+    *   Directs output to Reducer or "Counters" file (for total N count).
+*   **Reducer (`Step1Reducer`)**:
+    *   Aggregates counts for each unigram and bigram per decade.
+    *   Writes `<Decade, N, *, TotalCount>` to a side file ("counters") used later for LLR calculation.
 
-**Example:**
-```bash
-hadoop jar target/CollocationExtractor-1.0-SNAPSHOT.jar \
-  s3://datasets.elasticmapreduce/ngrams/books/20090715/heb-all/1gram/data \
-  s3://datasets.elasticmapreduce/ngrams/books/20090715/heb-all/2gram/data \
-  s3://ido-collocation-project/output \
-  s3://ido-collocation-project/heb-stopwords.txt
-```
+### Step 2: Join C(w1)
+*   **Purpose**: Associate the count of the first word (`w1`) with the bigram (`w1, w2`).
+*   **Key Idea**: Use a composite key `<Decade, w1, OrderTag>`. `w1` comes before `w1, w2` so the reducer sees the unigram count first.
+*   **Reducer (`Step2Reducer`)**:
+    *   Receives `C(w1)` first.
+    *   Attaches this count to all subsequent bigrams starting with `w1`.
+    *   **Output**: `<Decade, w1, w2> \t <C(w1), C(w1, w2)>`
 
-## MapReduce Steps
+### Step 3: Join C(w2) & Calculate LLR
+*   **Purpose**: Associate `C(w2)` and compute the final score.
+*   **Algorithm**:
+    *   Receives Unigram `w2` counts from **Step 1 Output**.
+    *   Receives Bigrams (with `C(w1)` attached) from **Step 2 Output**.
+    *   Joins on `w2`.
+    *   Uses `N` (Total words in decade) passed via **Configuration** from Step 1's counter file.
+    *   Calculates **Log Likelihood Ratio (LLR)** using `N`, `C(w1)`, `C(w2)`, and `C(w1, w2)`.
+    *   **Output**: `<Decade> \t <LLR> \t <w1 w2>`
 
-The extraction process is divided into 4 sequential MapReduce jobs:
+### Step 4: Sorting
+*   **Purpose**: Rank top collocations.
+*   **Logic**:
+    *   Mapper uses `LLR Score` as the sort key (Descending).
+    *   Reducer outputs only the top 100 results per decade.
+    *   **Output**: `<Decade> \t <w1 w2> \t <LLR>`
 
-1.  **Step 1: Aggregation & Filtering**
-    *   **Input**: Google 1-gram and 2-gram datasets.
-    *   **Action**: Filters stop-words (English and Hebrew). Counts occurrences of unigrams and bigrams per decade. Calculates total word count (N) per decade.
-    *   **Output**: Compressed step1 output and separate counters (N).
-
-2.  **Step 2: Join C(w1)**
-    *   **Input**: Output of Step 1.
-    *   **Action**: Aggregates counts for the first word (w1) of the bigram to associate C(w1) with the bigram.
-    *   **Output**: Bigrams with C(w1) attached.
-
-3.  **Step 3: Join C(w2) & Calculate LLR**
-    *   **Input**: Output of Step 1 (for w2 counts) and output of Step 2 (bigrams with w1 counts).
-    *   **Action**: Joins to associate C(w2) with the bigram. Uses N (passed via Configuration), C(w1), C(w2), and C(w1, w2) to calculate the Log Likelihood Ratio (LLR).
-    *   **Output**: Bigrams with their LLR scores.
-
-4.  **Step 4: Sorting**
-    *   **Input**: Output of Step 3.
-    *   **Action**: Sorts the results by LLR in descending order.
-    *   **Output**: Top 100 collocations per decade formatted for readability.
-
-## Implementation Notes
-*   **Stop Words**: Loaded into the Distributed Cache and used in the Mapper setup phase for efficient filtering.
-*   **Decade N Calculation**: Calculated in Step 1 and persisted to a file. The driver reads this file and passes N for each decade to subsequent jobs via the Hadoop Configuration.
-*   **Optimizations**: Used strictly typed Writable Comparable keys for efficient sorting and grouping.
-
-
-## Collocation Analysis
-
-### Hebrew Dataset
-
-**10 Good Collocations**
-(Examples that are meaningful concepts, proper nouns, or idioms)
-1.  **השם יתברך** (The Blessed Name/God): A specific religious proper noun referring to God.
-2.  **יום הכיפורים** (Yom Kippur): A distinct proper noun for a Jewish holiday.
-3.  **בית הכנסת** (Synagogue): A central institution; the pair forms a single lexical unit.
-4.  **המשפט העליון** (Supreme Court): A specific government institution (Proper Noun).
-5.  **ההסתדרות הציונית** (Zionist Organization): A historical proper noun representing a specific entity.
-6.  **הר סיני** (Mount Sinai): A specific geographical and religious location.
-7.  **אבן עזרא** (Ibn Ezra): A famous historical figure.
-8.  **שיר השירים** (Song of Songs): A title of a biblical book.
-9.  **אומות העולם** (Nations of the World): A distinct idiom used to refer to foreign nations/gentiles.
-10. **רבי עקיבא** (Rabbi Akiva): A specific historical figure.
-
-**10 Bad Collocations**
-(Examples that are functional connectors, grammatical artifacts, or non-entities)
-1.  **רוצה לומר** (Wants to say / i.e.): A functional phrase used as a connector ("that is to say").
-2.  **באותה עת** (At that time): A general temporal phrase describing time, lacking specific conceptual meaning.
-3.  **מכאן ואילך** (From here onwards): A directional and temporal connector used for flow.
-4.  **כדי למנוע** (In order to prevent): A grammatical conjunction phrase.
-5.  **קרוב לוודאי** (Almost certainly): An adverbial probability phrase.
-6.  **בינו לבין** (Between him and): A standard prepositional phrase.
-7.  **מאידך גיסא** (On the other hand): A idiom used for transition/argumentation, not a subject topic.
-8.  **בבית הכנסת** (In the Synagogue): A duplicate of "בית הכנסת", treated as a new word due to the attached prefix 'ב'.
-9.  **שאי אפשר** (That [it is] impossible): A common phrase with the prefix 'ש' attached.
-10. **ראה להלן** (See below): A citation artifact found frequently in academic texts.
-
-### English Dataset
-
-**10 Good Collocations**
-1.  **United States**: Proper Noun (Country).
-2.  **New York**: Proper Noun (City/State).
-3.  **Civil War**: A specific Historical Event.
-4.  **Supreme Court**: A specific Institution.
-5.  **Holy Spirit**: A strong Religious Concept.
-6.  **Great Britain**: Proper Noun (Country).
-7.  **Soviet Union**: A specific Historical Entity.
-8.  **San Francisco**: Proper Noun (City).
-9.  **Middle Ages**: A specific Historical Era.
-10. **Prime Minister**: A specific Title/Role.
-
-**10 Bad Collocations**
-1.  **years ago**: A very common temporal phrase, but "years" and "ago" are distinct concepts.
-2.  **great deal**: An idiom quantifying amount ("a lot"); functional/adverbial rather than conceptual.
-3.  **young man**: A compositional noun phrase. While common, it refers to any young male, not a specific entity.
-4.  **took place**: A phrasal verb meaning "happened". Functional action, not a topic.
-5.  **short time**: A generic measurement of time.
-6.  **thou hast**: Archaic grammar (Subject + Verb); a grammatical rule, not a collocation.
-7.  **thou art**: Archaic grammar ("You are").
-8.  **et al**: A Latin citation marker (et alii); functional marker.
-9.  **human beings**: Often considered compositional (noun + classifier) and generic.
-10. **right hand**: A common physical description, usually compositional rather than idiomatic.
+## System Components
+*   **Framework**: Apache Hadoop MapReduce (Java).
+*   **Orchestration**: `Main.java` uses `JobControl` or sequential `waitForCompletion` to chain jobs.
+*   **Optimization**:
+    *   **Combiners** in Step 1 to reduce network traffic.
+    *   **WritableComparable** custom keys for efficient secondary sorting.

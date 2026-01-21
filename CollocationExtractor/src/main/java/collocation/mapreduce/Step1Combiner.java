@@ -6,11 +6,7 @@ import org.apache.hadoop.mapreduce.Reducer;
 
 import java.io.IOException;
 
-/**
- * A simple combiner that just sums up counts.
- * It does NOT write to MultipleOutputs, ensuring that N-records
- * are correctly passed on to the final Reducer.
- */
+
 public class Step1Combiner extends Reducer<Text, LongWritable, Text, LongWritable> {
 
     private LongWritable result = new LongWritable();
